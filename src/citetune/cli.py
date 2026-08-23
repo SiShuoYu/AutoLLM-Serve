@@ -24,7 +24,7 @@ from .quality import filter_corpus_for_authoring
 from .readiness import assess_data_readiness
 from .retrieval import BM25Retriever
 from .retrieval_evaluation import run_retrieval_evaluation
-from .sft import export_sft_dataset, verify_sft_jsonl
+from .sft import export_candidate_smoke_sft, export_sft_dataset, verify_sft_jsonl
 from .splits import split_corpus_by_document
 from .training import load_qlora_config, run_qlora_training, training_preflight
 
@@ -103,6 +103,16 @@ def main(argv: list[str] | None = None) -> None:
     export_sft.add_argument("--dataset", required=True)
     export_sft.add_argument("--output", required=True)
     export_sft.add_argument("--manifest", required=True)
+    export_smoke = commands.add_parser(
+        "export-candidate-smoke-sft",
+        help="export unreviewed train drafts only for a non-reportable GPU pipeline smoke test",
+    )
+    export_smoke.add_argument("--queue", required=True)
+    export_smoke.add_argument("--submissions", required=True)
+    export_smoke.add_argument("--output", required=True)
+    export_smoke.add_argument("--manifest", required=True)
+    export_smoke.add_argument("--limit", type=int, default=100)
+    export_smoke.add_argument("--seed", type=int, default=42)
     verify_sft = commands.add_parser(
         "verify-sft", help="verify that an SFT JSONL contains train rows only"
     )
@@ -205,6 +215,16 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "export-sft":
         sft_manifest = export_sft_dataset(args.dataset, args.output, args.manifest)
         print(json.dumps(sft_manifest.as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+    if args.command == "export-candidate-smoke-sft":
+        smoke_manifest = export_candidate_smoke_sft(
+            args.queue,
+            args.submissions,
+            args.output,
+            args.manifest,
+            limit=args.limit,
+            seed=args.seed,
+        )
+        print(json.dumps(smoke_manifest.as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
     if args.command == "verify-sft":
         count = verify_sft_jsonl(args.dataset)
         print(json.dumps({"verified_train_rows": count}, ensure_ascii=False, indent=2))

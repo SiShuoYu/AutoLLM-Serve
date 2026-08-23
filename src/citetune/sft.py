@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .authoring import validate_authoring_submissions
 from .dataset import load_dataset
 from .schemas import GroundedExample
 
@@ -29,6 +30,24 @@ class SFTExportManifest:
     exported_train_count: int
     exported_behavior_counts: dict[str, int]
     excluded_split_counts: dict[str, int]
+
+    def as_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateSmokeExportManifest:
+    """Provenance for an explicitly non-final candidate-draft smoke dataset."""
+
+    purpose: str
+    queue_sha256: str
+    submissions_sha256: str
+    output_sha256: str
+    format_version: str
+    system_prompt_sha256: str
+    selected_task_ids_sha256: str
+    exported_train_count: int
+    seed: int
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -133,6 +152,102 @@ def export_sft_dataset(
             sorted(Counter(example.expected_behavior for example in training).items())
         ),
         excluded_split_counts=dict(sorted(excluded.items())),
+    )
+    manifest_file = Path(manifest_path)
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    manifest_file.write_text(
+        json.dumps(manifest.as_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def export_candidate_smoke_sft(
+    queue_path: str | Path,
+    submissions_path: str | Path,
+    output_path: str | Path,
+    manifest_path: str | Path,
+    *,
+    limit: int = 100,
+    seed: int = 42,
+) -> CandidateSmokeExportManifest:
+    """Export a small, unreviewed train-only set solely to test the GPU path.
+
+    This intentionally has a separate command, manifest, format marker, and
+    output location from ``export_sft_dataset``. It may not be cited as a
+    quality experiment or used for validation/test reporting.
+    """
+    if limit <= 0:
+        raise ValueError("limit must be positive")
+    queue = Path(queue_path)
+    submissions = Path(submissions_path)
+    validate_authoring_submissions(queue, submissions)
+    queue_rows = {
+        row["task_id"]: row
+        for row in (json.loads(line) for line in queue.read_text(encoding="utf-8").splitlines())
+        if row
+    }
+    candidate_rows = [
+        row
+        for row in (
+            json.loads(line) for line in submissions.read_text(encoding="utf-8").splitlines()
+        )
+        if row
+        and row.get("review", {}).get("status") == "needs_revision"
+        and (task := queue_rows.get(row.get("task_id"))) is not None
+        and task.get("split") == "train"
+        and task.get("task_type") == "answerable"
+    ]
+    selected = sorted(
+        candidate_rows,
+        key=lambda row: hashlib.sha256(f"{seed}:{row['task_id']}".encode()).hexdigest(),
+    )[:limit]
+    if not selected:
+        raise ValueError("no train candidate drafts are available for smoke export")
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("w", encoding="utf-8") as handle:
+        for candidate in selected:
+            task = queue_rows[candidate["task_id"]]
+            source = task["source_chunk"]
+            example = GroundedExample.from_dict(
+                {
+                    "example_id": candidate["task_id"],
+                    "split": "train",
+                    "question": candidate["question"],
+                    "reference_answer": candidate["reference_answer"],
+                    "reference_citation_ids": candidate["reference_citation_ids"],
+                    "evidence": [
+                        {
+                            "evidence_id": source["chunk_id"],
+                            "document_id": source["document_id"],
+                            "text": source["text"],
+                            "source_title": source["source_path"],
+                            "source_url": source["source_url"],
+                        }
+                    ],
+                }
+            )
+            chat_row = _as_chat_row(example)
+            metadata = chat_row["metadata"]
+            assert isinstance(metadata, dict)
+            metadata["dataset_status"] = "candidate_smoke_unreviewed"
+            metadata["purpose"] = "pipeline_smoke_only"
+            handle.write(json.dumps(chat_row, ensure_ascii=False, sort_keys=True) + "\n")
+
+    exported_count = verify_sft_jsonl(output)
+    selected_ids = "\n".join(row["task_id"] for row in selected).encode()
+    manifest = CandidateSmokeExportManifest(
+        purpose="pipeline_smoke_only_unreviewed_candidate_drafts",
+        queue_sha256=hashlib.sha256(queue.read_bytes()).hexdigest(),
+        submissions_sha256=hashlib.sha256(submissions.read_bytes()).hexdigest(),
+        output_sha256=hashlib.sha256(output.read_bytes()).hexdigest(),
+        format_version="qwen-candidate-smoke-unreviewed-v1",
+        system_prompt_sha256=hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest(),
+        selected_task_ids_sha256=hashlib.sha256(selected_ids).hexdigest(),
+        exported_train_count=exported_count,
+        seed=seed,
     )
     manifest_file = Path(manifest_path)
     manifest_file.parent.mkdir(parents=True, exist_ok=True)

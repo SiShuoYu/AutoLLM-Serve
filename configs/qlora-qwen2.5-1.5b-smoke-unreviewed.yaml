@@ -1,0 +1,28 @@
+experiment:
+  name: qwen2.5-1.5b-qlora-citetune-cn-smoke-unreviewed
+  model:
+    id: Qwen/Qwen2.5-1.5B-Instruct
+    revision: 989aa7980e4cf806f80c7fef2b1adb7bc71aa306
+  data:
+    train_path: ../data/pilot/smoke/sft_train_unreviewed.jsonl
+    manifest_path: ../data/pilot/smoke/sft_train_unreviewed_manifest.json
+  output_dir: ../artifacts/SMOKE_UNREVIEWED_DO_NOT_REPORT
+  seed: 42
+  training:
+    epochs: 1
+    learning_rate: 0.0002
+    batch_size: 1
+    gradient_accumulation_steps: 8
+    max_length: 512
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj

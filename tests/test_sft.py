@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from citetune.sft import export_sft_dataset, verify_sft_jsonl
+from citetune.sft import export_candidate_smoke_sft, export_sft_dataset, verify_sft_jsonl
 
 
 def _answerable(example_id: str, split: str) -> dict[str, object]:
@@ -78,3 +78,51 @@ def test_sft_verifier_rejects_non_train_rows(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="non-train"):
         verify_sft_jsonl(path)
+
+
+def test_candidate_smoke_export_is_train_only_and_explicitly_unreviewed(tmp_path: Path) -> None:
+    queue = tmp_path / "queue.jsonl"
+    queue.write_text(
+        json.dumps(
+            {
+                "task_id": "train-answerable-0001",
+                "split": "train",
+                "task_type": "answerable",
+                "source_chunk": {
+                    "chunk_id": "chunk-1",
+                    "document_id": "doc-1",
+                    "text": "Pod 是 Kubernetes 最小的可部署单元。",
+                    "source_path": "pods.md",
+                    "source_url": "https://example.test/pods",
+                },
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    submissions = tmp_path / "candidates.jsonl"
+    submissions.write_text(
+        json.dumps(
+            {
+                "task_id": "train-answerable-0001",
+                "author_id": "model:generator",
+                "question": "Pod 是什么？",
+                "reference_answer": "Pod 是 Kubernetes 最小的可部署单元。",
+                "reference_citation_ids": ["chunk-1"],
+                "review": {"status": "needs_revision", "notes": "待审核"},
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "smoke.jsonl"
+    manifest = export_candidate_smoke_sft(
+        queue, submissions, output, tmp_path / "smoke_manifest.json", limit=1
+    )
+    row = json.loads(output.read_text(encoding="utf-8"))
+    assert manifest.purpose == "pipeline_smoke_only_unreviewed_candidate_drafts"
+    assert manifest.exported_train_count == 1
+    assert row["metadata"]["dataset_status"] == "candidate_smoke_unreviewed"
+    assert row["metadata"]["purpose"] == "pipeline_smoke_only"
