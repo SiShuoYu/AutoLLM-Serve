@@ -12,6 +12,7 @@ from pathlib import Path
 KUBERNETES_REPOSITORY = "https://github.com/kubernetes/website.git"
 KUBERNETES_DOCS_SUBDIR = Path("content/zh-cn/docs")
 KUBERNETES_LICENSE = "CC-BY-4.0"
+CONTENT_CLEANING_POLICY = "front-matter-and-html-comments-outside-fences-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +24,7 @@ class CorpusBuildManifest:
     document_count: int
     chunk_count: int
     chunk_size_characters: int
+    content_cleaning_policy: str
     corpus_sha256: str
 
     def as_dict(self) -> dict[str, object]:
@@ -86,11 +88,42 @@ def _strip_front_matter(text: str) -> str:
     return text[closing.end() + 3 :] if closing else text
 
 
+def _strip_html_comments_outside_fences(text: str) -> str:
+    """Remove hidden HTML comments while preserving literal examples in code fences."""
+    result: list[str] = []
+    prose: list[str] = []
+    in_fence = False
+    fence_character = ""
+
+    def flush_prose() -> None:
+        if prose:
+            result.append(re.sub(r"<!--.*?(?:-->|\Z)", "", "".join(prose), flags=re.DOTALL))
+            prose.clear()
+
+    for line in text.splitlines(keepends=True):
+        marker = re.match(r"^\s*(`{3,}|~{3,})", line)
+        if marker:
+            flush_prose()
+            current_character = marker.group(1)[0]
+            if not in_fence:
+                in_fence = True
+                fence_character = current_character
+            elif current_character == fence_character:
+                in_fence = False
+                fence_character = ""
+            result.append(line)
+        elif in_fence:
+            result.append(line)
+        else:
+            prose.append(line)
+    flush_prose()
+    return "".join(result)
+
+
 def _chunk_markdown(text: str, maximum_characters: int) -> list[str]:
     """Split Markdown by paragraphs without inventing or rewriting source text."""
-    blocks = [
-        block.strip() for block in re.split(r"\n\s*\n", _strip_front_matter(text)) if block.strip()
-    ]
+    cleaned = _strip_html_comments_outside_fences(_strip_front_matter(text))
+    blocks = [block.strip() for block in re.split(r"\n\s*\n", cleaned) if block.strip()]
     chunks: list[str] = []
     current = ""
     for block in blocks:
@@ -167,6 +200,7 @@ def build_kubernetes_corpus(
         document_count=len(files),
         chunk_count=len(chunks),
         chunk_size_characters=chunk_size_characters,
+        content_cleaning_policy=CONTENT_CLEANING_POLICY,
         corpus_sha256=corpus_sha256,
     )
     manifest_file = Path(manifest_path)

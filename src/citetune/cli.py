@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> None:
     quality.add_argument("--manifest", required=True)
     quality.add_argument("--minimum-characters", type=int, default=240)
     quality.add_argument("--minimum-chinese-ratio", type=float, default=0.12)
-    quality.add_argument("--maximum-template-markers", type=int, default=3)
+    quality.add_argument("--maximum-template-markers", type=int, default=0)
     packet = commands.add_parser(
         "render-review-packet", help="render candidate QA and evidence for human review"
     )

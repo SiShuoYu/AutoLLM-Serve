@@ -11,6 +11,7 @@ def test_quality_filter_keeps_only_self_contained_chinese_source_chunks(tmp_path
         {"chunk_id": "short", "document_id": "doc-2", "text": "中" * 20},
         {"chunk_id": "english", "document_id": "doc-3", "text": "pod lifecycle " * 80},
         {"chunk_id": "template", "document_id": "doc-4", "text": "中" * 300 + "{{< x >}}" * 4},
+        {"chunk_id": "comment", "document_id": "doc-5", "text": "中" * 300 + "-->"},
     )
     corpus.write_text(
         "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8"
@@ -21,6 +22,6 @@ def test_quality_filter_keeps_only_self_contained_chinese_source_chunks(tmp_path
     assert [row["chunk_id"] for row in kept] == ["keep"]
     assert manifest.rejection_counts == {
         "low_chinese_ratio": 1,
-        "too_many_template_markers": 1,
+        "too_many_template_markers": 2,
         "too_short": 1,
     }

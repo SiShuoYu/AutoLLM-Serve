@@ -35,7 +35,7 @@ def _chinese_ratio(text: str) -> float:
 
 
 def _template_markers(text: str) -> int:
-    return text.count("{{<") + text.count("<!--")
+    return sum(text.count(marker) for marker in ("{{<", "{{%", "<!--", "-->", "php-template"))
 
 
 def filter_corpus_for_authoring(
@@ -45,7 +45,7 @@ def filter_corpus_for_authoring(
     *,
     minimum_characters: int = 240,
     minimum_chinese_ratio: float = 0.12,
-    maximum_template_markers: int = 3,
+    maximum_template_markers: int = 0,
 ) -> CorpusQualityManifest:
     """Keep source chunks likely to support a self-contained Chinese QA item.
 
