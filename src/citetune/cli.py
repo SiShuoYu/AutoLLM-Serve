@@ -179,6 +179,11 @@ def main(argv: list[str] | None = None) -> None:
     generate_heldout.add_argument("--output", required=True)
     generate_heldout.add_argument("--validation-limit", type=int, default=100)
     generate_heldout.add_argument("--test-limit", type=int, default=160)
+    generate_heldout.add_argument(
+        "--include-reserves",
+        action="store_true",
+        help="use same-split reserves after rejected drafts",
+    )
     audit_candidates = commands.add_parser(
         "audit-candidate-drafts",
         help="screen unreviewed drafts and render a bounded human review batch",
@@ -342,6 +347,7 @@ def main(argv: list[str] | None = None) -> None:
             QwenCandidateGenerator(generation_config),
             validation_limit=args.validation_limit,
             test_limit=args.test_limit,
+            include_reserves=args.include_reserves,
         )
         print(json.dumps({"generated_candidates": heldout_counts}, ensure_ascii=False, indent=2))
     if args.command == "audit-candidate-drafts":

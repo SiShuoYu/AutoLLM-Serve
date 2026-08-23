@@ -265,6 +265,7 @@ def generate_heldout_candidates(
     *,
     validation_limit: int = 100,
     test_limit: int = 160,
+    include_reserves: bool = False,
 ) -> dict[str, int]:
     """Generate validation and test drafts in one model-loading session.
 
@@ -272,10 +273,20 @@ def generate_heldout_candidates(
     """
     return {
         "validation": generate_answerable_candidates(
-            queue_path, output_path, generator, split="validation", limit=validation_limit
+            queue_path,
+            output_path,
+            generator,
+            split="validation",
+            limit=validation_limit,
+            include_reserves=include_reserves,
         ),
         "test": generate_answerable_candidates(
-            queue_path, output_path, generator, split="test", limit=test_limit
+            queue_path,
+            output_path,
+            generator,
+            split="test",
+            limit=test_limit,
+            include_reserves=include_reserves,
         ),
     }
 
