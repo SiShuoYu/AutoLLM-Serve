@@ -1,0 +1,29 @@
+experiment:
+  name: qwen2.5-1.5b-qlora-citetune-cn-synthetic-v1-seed1337
+  model:
+    id: Qwen/Qwen2.5-1.5B-Instruct
+    revision: 989aa7980e4cf806f80c7fef2b1adb7bc71aa306
+  data:
+    train_path: ../data/processed/sft_synthetic_train_v1.jsonl
+    manifest_path: ../data/processed/sft_synthetic_train_v1_manifest.json
+  output_dir: ../artifacts/qlora-qwen2.5-1.5b-synthetic-v1-seed1337
+  seed: 1337
+  training:
+    epochs: 3
+    learning_rate: 0.0002
+    batch_size: 1
+    gradient_accumulation_steps: 16
+    max_length: 1024
+    mixed_precision: none
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj
