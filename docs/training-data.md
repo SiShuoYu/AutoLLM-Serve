@@ -30,6 +30,14 @@ citetune verify-sft --dataset data/processed/sft_train.jsonl
 This export is model-ready data formatting only. It does not download model
 weights, install CUDA packages, or start training.
 
+### Precision setting
+
+The QLoRA configuration records its `training.mixed_precision` mode explicitly.
+For the current RTX 3060 / CUDA environment it is `none`: the 4-bit model
+still performs its quantized compute with FP16, while PyTorch's outer FP16
+gradient scaler is disabled for compatibility with float32 LoRA gradients.
+This is a reproducibility setting, not a relaxation of the training-data gate.
+
 ## GPU pipeline smoke test (not a quality experiment)
 
 Before reviewed data exists, a small deterministic subset of `needs_revision`

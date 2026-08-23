@@ -28,6 +28,7 @@ class QLoRAConfig:
     batch_size: int
     gradient_accumulation_steps: int
     max_length: int
+    mixed_precision: str
     lora_r: int
     lora_alpha: int
     lora_dropout: float
@@ -101,6 +102,9 @@ def load_qlora_config(path: str | Path) -> QLoRAConfig:
         "experiment.training.gradient_accumulation_steps",
     )
     max_length = _positive_int(training.get("max_length"), "experiment.training.max_length")
+    mixed_precision = _text(training.get("mixed_precision"), "experiment.training.mixed_precision")
+    if mixed_precision not in {"none", "fp16"}:
+        raise ValueError("experiment.training.mixed_precision must be 'none' or 'fp16'")
     lora_r = _positive_int(lora.get("r"), "experiment.lora.r")
     lora_alpha = _positive_int(lora.get("alpha"), "experiment.lora.alpha")
     dropout = lora.get("dropout")
@@ -123,6 +127,7 @@ def load_qlora_config(path: str | Path) -> QLoRAConfig:
         batch_size=batch_size,
         gradient_accumulation_steps=accumulation,
         max_length=max_length,
+        mixed_precision=mixed_precision,
         lora_r=lora_r,
         lora_alpha=lora_alpha,
         lora_dropout=float(dropout),
@@ -202,7 +207,11 @@ def run_qlora_training(config: QLoRAConfig) -> None:
         gradient_accumulation_steps=config.gradient_accumulation_steps,
         max_length=config.max_length,
         gradient_checkpointing=True,
-        fp16=True,
+        # RTX 30-series + current CUDA builds can expose float32 LoRA gradients
+        # to an FP16 GradScaler, which then fails during gradient clipping.
+        # Quantized model computation remains FP16; "none" only disables that
+        # outer automatic-loss-scaling layer.
+        fp16=config.mixed_precision == "fp16",
         bf16=False,
         completion_only_loss=True,
         packing=False,

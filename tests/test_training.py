@@ -28,6 +28,7 @@ def _write_config(tmp_path: Path, revision: str = MODEL_REVISION) -> Path:
     batch_size: 1
     gradient_accumulation_steps: 8
     max_length: 512
+    mixed_precision: none
   lora:
     r: 8
     alpha: 16
@@ -63,8 +64,16 @@ def test_training_preflight_verifies_pinned_model_and_sft_hash(tmp_path: Path) -
     assert report.verified_train_rows == 1
     assert report.manifest_matches_train is True
     assert report.gpu_required is True
+    assert config.mixed_precision == "none"
 
 
 def test_training_config_requires_full_model_commit(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="full 40-character"):
         load_qlora_config(_write_config(tmp_path, revision="main"))
+
+
+def test_training_config_rejects_unknown_precision_mode(tmp_path: Path) -> None:
+    path = _write_config(tmp_path)
+    path.write_text(path.read_text(encoding="utf-8").replace("none", "bf16"), encoding="utf-8")
+    with pytest.raises(ValueError, match="mixed_precision"):
+        load_qlora_config(path)
