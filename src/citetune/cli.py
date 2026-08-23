@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+from pathlib import Path
 
 from .authoring import (
     build_authoring_queue,
@@ -12,6 +14,7 @@ from .authoring import (
     validate_authoring_submissions,
 )
 from .candidate_audit import audit_candidate_drafts
+from .candidate_curation import curate_train_candidate_drafts
 from .candidate_generation import (
     QwenCandidateGenerator,
     generate_answerable_candidates,
@@ -160,6 +163,15 @@ def main(argv: list[str] | None = None) -> None:
     audit_candidates.add_argument("--review-packet", required=True)
     audit_candidates.add_argument("--review-limit", type=int, default=60)
     audit_candidates.add_argument("--seed", type=int, default=42)
+    curate_candidates = commands.add_parser(
+        "curate-and-replace-train-drafts",
+        help="conservatively reject duplicate/generic train drafts and replace them from reserves",
+    )
+    curate_candidates.add_argument("--config", required=True)
+    curate_candidates.add_argument("--queue", required=True)
+    curate_candidates.add_argument("--submissions", required=True)
+    curate_candidates.add_argument("--output", required=True)
+    curate_candidates.add_argument("--manifest", required=True)
     args = parser.parse_args(argv)
     if args.command == "validate-dataset":
         examples = load_dataset(args.dataset)
@@ -274,3 +286,27 @@ def main(argv: list[str] | None = None) -> None:
             seed=args.seed,
         )
         print(json.dumps(audit_report.as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+    if args.command == "curate-and-replace-train-drafts":
+        curation_plan = curate_train_candidate_drafts(args.queue, args.submissions, args.output)
+        generation_config = load_candidate_generation_config(args.config)
+        replacement_count = generate_answerable_candidates(
+            args.queue,
+            args.output,
+            QwenCandidateGenerator(generation_config),
+            split="train",
+            limit=curation_plan.replacement_requested_count,
+            include_reserves=True,
+        )
+        output_path = Path(args.output)
+        curation_report = {
+            **curation_plan.as_dict(),
+            "generated_replacement_count": replacement_count,
+            "final_output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
+        }
+        manifest_path = Path(args.manifest)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(
+            json.dumps(curation_report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps(curation_report, ensure_ascii=False, indent=2, sort_keys=True))
