@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -252,13 +253,42 @@ class QwenCandidateGenerator:
         text = self._tokenizer.decode(
             generated[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=True
         )
-        start = text.find("{")
-        end = text.rfind("}")
-        if start < 0 or end <= start:
-            raise ValueError("model output did not contain a JSON object")
-        raw: Any = json.loads(text[start : end + 1])
-        if not isinstance(raw, dict) or not isinstance(raw.get("question"), str):
-            raise ValueError("model output has no question")
-        if not isinstance(raw.get("answer"), str):
-            raise ValueError("model output has no answer")
-        return raw["question"], raw["answer"]
+        return parse_candidate_output(text)
+
+
+def parse_candidate_output(text: str) -> tuple[str, str]:
+    """Accept JSON first, then Qwen's common Chinese labelled fallback format."""
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            raw, _ = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(raw, dict):
+            return _validated_candidate_fields(raw)
+
+    labelled = re.search(
+        r"(?:^|\n)\s*(?:问题|question)\s*[:：]\s*(.+?)"
+        r"\s*(?:\n|$)\s*(?:答案|answer)\s*[:：]\s*(.+)\Z",
+        text.strip(),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if labelled:
+        return _validated_candidate_fields(
+            {"question": labelled.group(1), "answer": labelled.group(2)}
+        )
+
+    preview = " ".join(text.split())[:240]
+    raise ValueError(f"model output contained no parseable question/answer: {preview!r}")
+
+
+def _validated_candidate_fields(raw: dict[str, Any]) -> tuple[str, str]:
+    question = raw.get("question")
+    answer = raw.get("answer")
+    if not isinstance(question, str) or not question.strip():
+        raise ValueError("model output has no question")
+    if not isinstance(answer, str) or not answer.strip():
+        raise ValueError("model output has no answer")
+    return question.strip(), answer.strip()

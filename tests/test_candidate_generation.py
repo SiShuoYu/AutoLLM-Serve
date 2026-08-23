@@ -9,6 +9,7 @@ from citetune.candidate_generation import (
     generate_answerable_candidates,
     generation_preflight,
     load_candidate_generation_config,
+    parse_candidate_output,
 )
 
 
@@ -86,3 +87,18 @@ def test_generation_config_requires_pinned_model_revision(tmp_path: Path) -> Non
     config.write_text(config.read_text(encoding="utf-8").replace(loaded.model_revision, "main"))
     with pytest.raises(ValueError, match="full commit hash"):
         load_candidate_generation_config(config)
+
+
+def test_candidate_output_parser_accepts_json_and_labelled_fallback() -> None:
+    assert parse_candidate_output(
+        '```json\n{"question": "Pod 是什么？", "answer": "可部署单元。"}\n```'
+    ) == (
+        "Pod 是什么？",
+        "可部署单元。",
+    )
+    assert parse_candidate_output("问题：Pod 是什么？\n答案：Pod 是可部署单元。") == (
+        "Pod 是什么？",
+        "Pod 是可部署单元。",
+    )
+    with pytest.raises(ValueError, match="no parseable"):
+        parse_candidate_output("我无法生成问题")
