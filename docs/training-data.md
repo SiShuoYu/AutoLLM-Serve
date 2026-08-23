@@ -38,6 +38,15 @@ still performs its quantized compute with FP16, while PyTorch's outer FP16
 gradient scaler is disabled for compatibility with float32 LoRA gradients.
 This is a reproducibility setting, not a relaxation of the training-data gate.
 
+## Independent model pre-review
+
+`citetune model-pre-review-train` uses a separately pinned reviewer model to
+inspect only `train` candidate drafts against their locked source chunks. Its
+manifest records queue, input, and output hashes. An approval is explicitly
+labelled `reviewer_type: model`; it is useful for training-data triage but is
+not human ground truth. Validation and test rows are never changed by this
+command and still require human approval before benchmark reporting.
+
 ## GPU pipeline smoke test (not a quality experiment)
 
 Before reviewed data exists, a small deterministic subset of `needs_revision`

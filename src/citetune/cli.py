@@ -25,6 +25,7 @@ from .candidate_generation import (
 from .corpus import build_kubernetes_corpus, fetch_kubernetes_docs
 from .dataset import dataset_manifest, load_dataset
 from .experiment import load_experiment_config, run_experiment
+from .model_review import QwenEvidenceReviewer, load_model_review_config, review_train_candidates
 from .quality import filter_corpus_for_authoring
 from .readiness import assess_data_readiness
 from .retrieval import BM25Retriever
@@ -181,6 +182,15 @@ def main(argv: list[str] | None = None) -> None:
     top_up_candidates.add_argument("--queue", required=True)
     top_up_candidates.add_argument("--output", required=True)
     top_up_candidates.add_argument("--requested-count", required=True, type=int)
+    model_review = commands.add_parser(
+        "model-pre-review-train",
+        help="run a pinned independent model reviewer on train drafts only",
+    )
+    model_review.add_argument("--config", required=True)
+    model_review.add_argument("--queue", required=True)
+    model_review.add_argument("--submissions", required=True)
+    model_review.add_argument("--output", required=True)
+    model_review.add_argument("--manifest", required=True)
     args = parser.parse_args(argv)
     if args.command == "validate-dataset":
         examples = load_dataset(args.dataset)
@@ -327,6 +337,22 @@ def main(argv: list[str] | None = None) -> None:
             QwenCandidateGenerator(generation_config),
             requested_count=args.requested_count,
         )
+    if args.command == "model-pre-review-train":
+        review_config = load_model_review_config(args.config)
+        review_report = review_train_candidates(
+            args.queue,
+            args.submissions,
+            args.output,
+            QwenEvidenceReviewer(review_config),
+        )
+        manifest_path = Path(args.manifest)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(
+            json.dumps(review_report.as_dict(), ensure_ascii=False, indent=2, sort_keys=True)
+            + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps(review_report.as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
         print(
             json.dumps(
                 {
