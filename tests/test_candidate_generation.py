@@ -96,7 +96,7 @@ def test_candidate_output_parser_accepts_json_and_labelled_fallback() -> None:
         "Pod 是什么？",
         "可部署单元。",
     )
-    assert parse_candidate_output("问题：Pod 是什么？\n答案：Pod 是可部署单元。") == (
+    assert parse_candidate_output("**问题**：Pod 是什么？ **答案**：Pod 是可部署单元。") == (
         "Pod 是什么？",
         "Pod 是可部署单元。",
     )

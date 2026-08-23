@@ -270,8 +270,8 @@ def parse_candidate_output(text: str) -> tuple[str, str]:
             return _validated_candidate_fields(raw)
 
     labelled = re.search(
-        r"(?:^|\n)\s*(?:问题|question)\s*[:：]\s*(.+?)"
-        r"\s*(?:\n|$)\s*(?:答案|answer)\s*[:：]\s*(.+)\Z",
+        r"(?:\*{1,3}\s*)?(?:问题|question)(?:\s*\*{1,3})?\s*[:：]\s*(.+?)"
+        r"\s*(?:\*{1,3}\s*)?(?:答案|answer)(?:\s*\*{1,3})?\s*[:：]\s*(.+)\Z",
         text.strip(),
         flags=re.IGNORECASE | re.DOTALL,
     )
