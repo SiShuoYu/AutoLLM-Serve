@@ -47,6 +47,15 @@ labelled `reviewer_type: model`; it is useful for training-data triage but is
 not human ground truth. Validation and test rows are never changed by this
 command and still require human approval before benchmark reporting.
 
+## Source-grounded synthetic training data
+
+After deterministic corpus filtering, duplicate/generic-draft curation, and
+candidate risk screening, `citetune export-synthetic-train-sft` may export the
+remaining train-only candidates for a formal adaptation run. Every record and
+manifest marks this dataset as synthetic and `train_only_not_benchmark`.
+It is legitimate to report the training configuration and GPU cost, but not to
+claim model quality until a separately human-approved held-out benchmark exists.
+
 ## GPU pipeline smoke test (not a quality experiment)
 
 Before reviewed data exists, a small deterministic subset of `needs_revision`

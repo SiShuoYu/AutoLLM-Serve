@@ -53,6 +53,21 @@ class CandidateSmokeExportManifest:
         return asdict(self)
 
 
+@dataclass(frozen=True, slots=True)
+class SyntheticTrainExportManifest:
+    dataset_role: str
+    queue_sha256: str
+    submissions_sha256: str
+    output_sha256: str
+    format_version: str
+    system_prompt_sha256: str
+    exported_train_count: int
+    excluded_submission_status_counts: dict[str, int]
+
+    def as_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
 def _as_chat_row(example: GroundedExample) -> dict[str, object]:
     if example.split != "train":
         raise ValueError(f"SFT export received non-train example: {example.example_id}")
@@ -248,6 +263,99 @@ def export_candidate_smoke_sft(
         selected_task_ids_sha256=hashlib.sha256(selected_ids).hexdigest(),
         exported_train_count=exported_count,
         seed=seed,
+    )
+    manifest_file = Path(manifest_path)
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    manifest_file.write_text(
+        json.dumps(manifest.as_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def export_synthetic_train_sft(
+    queue_path: str | Path,
+    submissions_path: str | Path,
+    output_path: str | Path,
+    manifest_path: str | Path,
+) -> SyntheticTrainExportManifest:
+    """Export source-grounded synthetic train drafts for a formal adaptation run.
+
+    This is intentionally distinct from approved gold data. The artifact is
+    valid for train-only SFT, but benchmark conclusions remain blocked until
+    human-approved validation and test data exist.
+    """
+    queue_file = Path(queue_path)
+    submissions_file = Path(submissions_path)
+    validate_authoring_submissions(queue_file, submissions_file)
+    queue = {
+        row["task_id"]: row
+        for row in (
+            json.loads(line) for line in queue_file.read_text(encoding="utf-8").splitlines()
+        )
+        if row
+    }
+    submissions = [
+        json.loads(line)
+        for line in submissions_file.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    synthetic_rows = [
+        row
+        for row in submissions
+        if row.get("review", {}).get("status") == "needs_revision"
+        and queue[row["task_id"]].get("split") == "train"
+        and queue[row["task_id"]].get("task_type") == "answerable"
+    ]
+    if not synthetic_rows:
+        raise ValueError(
+            "no screened train candidate drafts are available for synthetic SFT export"
+        )
+    excluded = Counter(
+        str(row.get("review", {}).get("status", "missing"))
+        for row in submissions
+        if row not in synthetic_rows
+    )
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("w", encoding="utf-8") as handle:
+        for candidate in synthetic_rows:
+            task = queue[candidate["task_id"]]
+            source = task["source_chunk"]
+            example = GroundedExample.from_dict(
+                {
+                    "example_id": candidate["task_id"],
+                    "split": "train",
+                    "question": candidate["question"],
+                    "reference_answer": candidate["reference_answer"],
+                    "reference_citation_ids": candidate["reference_citation_ids"],
+                    "evidence": [
+                        {
+                            "evidence_id": source["chunk_id"],
+                            "document_id": source["document_id"],
+                            "text": source["text"],
+                            "source_title": source["source_path"],
+                            "source_url": source["source_url"],
+                        }
+                    ],
+                }
+            )
+            chat_row = _as_chat_row(example)
+            metadata = chat_row["metadata"]
+            assert isinstance(metadata, dict)
+            metadata["dataset_status"] = "synthetic_source_grounded_screened"
+            metadata["dataset_role"] = "train_only_not_benchmark"
+            handle.write(json.dumps(chat_row, ensure_ascii=False, sort_keys=True) + "\n")
+    exported_count = verify_sft_jsonl(output)
+    manifest = SyntheticTrainExportManifest(
+        dataset_role="synthetic_source_grounded_train_only_not_benchmark",
+        queue_sha256=hashlib.sha256(queue_file.read_bytes()).hexdigest(),
+        submissions_sha256=hashlib.sha256(submissions_file.read_bytes()).hexdigest(),
+        output_sha256=hashlib.sha256(output.read_bytes()).hexdigest(),
+        format_version="qwen-synthetic-source-grounded-train-v1",
+        system_prompt_sha256=hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest(),
+        exported_train_count=exported_count,
+        excluded_submission_status_counts=dict(sorted(excluded.items())),
     )
     manifest_file = Path(manifest_path)
     manifest_file.parent.mkdir(parents=True, exist_ok=True)
