@@ -65,8 +65,10 @@ def assess_data_readiness(
             raise ValueError(f"submission {row.get('task_id')} has no review status")
         status = review["status"]
         status_counts[status] += 1
-        if status != "approved" or task.get("queue_role", "primary") != "primary":
+        if status != "approved":
             continue
+        # Reserve tasks are prelocked alternatives from the same split. They may
+        # replace rejected primary tasks only after an explicit review approval.
         key = _gate_key(task.get("split"), task.get("task_type"))
         approved[key] += 1
         if task.get("split") == "test" and review.get("reviewer_type") == "human":

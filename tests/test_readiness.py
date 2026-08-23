@@ -4,7 +4,7 @@ from pathlib import Path
 from citetune.readiness import assess_data_readiness
 
 
-def test_readiness_reports_missing_primary_data_and_ignores_reserves(tmp_path: Path) -> None:
+def test_readiness_allows_approved_reserves_to_replace_primary_data(tmp_path: Path) -> None:
     queue = tmp_path / "queue.jsonl"
     queue_rows = [
         {
@@ -31,7 +31,7 @@ def test_readiness_reports_missing_primary_data_and_ignores_reserves(tmp_path: P
     submissions.write_text(
         json.dumps(
             {
-                "task_id": "train-answerable-0001",
+                "task_id": "train-answerable-reserve-0001",
                 "review": {"status": "approved", "reviewer_type": "model"},
             }
         )
@@ -40,5 +40,6 @@ def test_readiness_reports_missing_primary_data_and_ignores_reserves(tmp_path: P
     )
     report = assess_data_readiness(queue, submissions)
     assert report.approved_counts["train:answerable"] == 1
+    assert report.missing_approved_counts["train:answerable"] == 0
     assert report.missing_approved_counts["test:insufficient_evidence"] == 1
     assert report.ready_for_gpu is False

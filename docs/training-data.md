@@ -14,6 +14,10 @@ counts remain in the manifest so that a missing or unexpected split is visible.
 Every exported row also retains `metadata.split: train`; `citetune verify-sft`
 fails if a non-training row is inserted later.
 
+The authoring queue can contain prelocked reserve source chunks from the same
+split. A reserve may fill a rejected primary task only after ordinary review
+approval; it never bypasses the split boundary or becomes approved automatically.
+
 ```bash
 citetune export-sft \
   --dataset data/processed/reviewed_qa.jsonl \
