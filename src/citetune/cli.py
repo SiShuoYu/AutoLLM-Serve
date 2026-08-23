@@ -25,6 +25,7 @@ from .candidate_generation import (
 from .corpus import build_kubernetes_corpus, fetch_kubernetes_docs
 from .dataset import dataset_manifest, load_dataset
 from .experiment import load_experiment_config, run_experiment
+from .inference import QwenAnswerGenerator, generate_predictions, load_inference_config
 from .model_review import QwenEvidenceReviewer, load_model_review_config, review_train_candidates
 from .quality import filter_corpus_for_authoring
 from .readiness import assess_data_readiness
@@ -204,6 +205,14 @@ def main(argv: list[str] | None = None) -> None:
     model_review.add_argument("--submissions", required=True)
     model_review.add_argument("--output", required=True)
     model_review.add_argument("--manifest", required=True)
+    generate_predictions_command = commands.add_parser(
+        "generate-predictions",
+        help="generate Base/RAG/QLoRA predictions with real timing, without scoring",
+    )
+    generate_predictions_command.add_argument("--config", required=True)
+    generate_predictions_command.add_argument("--dataset", required=True)
+    generate_predictions_command.add_argument("--output", required=True)
+    generate_predictions_command.add_argument("--manifest", required=True)
     args = parser.parse_args(argv)
     if args.command == "validate-dataset":
         examples = load_dataset(args.dataset)
@@ -385,3 +394,19 @@ def main(argv: list[str] | None = None) -> None:
             encoding="utf-8",
         )
         print(json.dumps(review_report.as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+    if args.command == "generate-predictions":
+        inference_config = load_inference_config(args.config)
+        inference_report = generate_predictions(
+            inference_config,
+            args.dataset,
+            args.output,
+            QwenAnswerGenerator(inference_config),
+        )
+        manifest_path = Path(args.manifest)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(
+            json.dumps(inference_report.as_dict(), ensure_ascii=False, indent=2, sort_keys=True)
+            + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps(inference_report.as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
