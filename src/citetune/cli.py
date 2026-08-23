@@ -14,7 +14,7 @@ from .authoring import (
     validate_authoring_submissions,
 )
 from .candidate_audit import audit_candidate_drafts
-from .candidate_curation import curate_train_candidate_drafts
+from .candidate_curation import curate_heldout_candidate_drafts, curate_train_candidate_drafts
 from .candidate_generation import (
     QwenCandidateGenerator,
     generate_answerable_candidates,
@@ -203,6 +203,15 @@ def main(argv: list[str] | None = None) -> None:
     curate_candidates.add_argument("--submissions", required=True)
     curate_candidates.add_argument("--output", required=True)
     curate_candidates.add_argument("--manifest", required=True)
+    curate_heldout = commands.add_parser(
+        "curate-and-replace-heldout-drafts",
+        help="conservatively clean held-out drafts and replace from same-split reserves",
+    )
+    curate_heldout.add_argument("--config", required=True)
+    curate_heldout.add_argument("--queue", required=True)
+    curate_heldout.add_argument("--submissions", required=True)
+    curate_heldout.add_argument("--output", required=True)
+    curate_heldout.add_argument("--manifest", required=True)
     top_up_candidates = commands.add_parser(
         "top-up-reserve-candidates",
         help="fill a known train candidate shortfall from reserves with bounded retries",
@@ -384,6 +393,37 @@ def main(argv: list[str] | None = None) -> None:
             encoding="utf-8",
         )
         print(json.dumps(curation_report, ensure_ascii=False, indent=2, sort_keys=True))
+    if args.command == "curate-and-replace-heldout-drafts":
+        heldout_plan = curate_heldout_candidate_drafts(args.queue, args.submissions, args.output)
+        generation_config = load_candidate_generation_config(args.config)
+        generator = QwenCandidateGenerator(generation_config)
+        replacement_report: dict[str, dict[str, int]] = {}
+        for data_split, requested_count in heldout_plan.replacement_requested_counts.items():
+            result = generate_reserve_replacements(
+                args.queue,
+                args.output,
+                generator,
+                requested_count=requested_count,
+                split=data_split,
+            )
+            replacement_report[data_split] = {
+                "generated_count": result.generated_count,
+                "generation_pass_count": result.generation_pass_count,
+                "unfilled_count": result.unfilled_count,
+            }
+        output_path = Path(args.output)
+        heldout_report = {
+            **heldout_plan.as_dict(),
+            "replacement_results": replacement_report,
+            "final_output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
+        }
+        manifest_path = Path(args.manifest)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(
+            json.dumps(heldout_report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps(heldout_report, ensure_ascii=False, indent=2, sort_keys=True))
     if args.command == "top-up-reserve-candidates":
         generation_config = load_candidate_generation_config(args.config)
         top_up_result = generate_reserve_replacements(

@@ -219,6 +219,7 @@ def generate_reserve_replacements(
     generator: CandidateGenerator,
     *,
     requested_count: int,
+    split: str = "train",
     max_passes: int = 3,
 ) -> CandidateReplacementResult:
     """Retry reserve generation after malformed model output, with a hard bound.
@@ -242,7 +243,7 @@ def generate_reserve_replacements(
             queue_path,
             output,
             generator,
-            split="train",
+            split=split,
             limit=requested_count - generated,
             include_reserves=True,
         )
