@@ -136,6 +136,9 @@ def main(argv: list[str] | None = None) -> None:
     generate.add_argument("--output", required=True)
     generate.add_argument("--split", choices=["train", "validation", "test"], default="train")
     generate.add_argument("--limit", type=int, default=25)
+    generate.add_argument(
+        "--include-reserves", action="store_true", help="allow reserve source tasks after primaries"
+    )
     args = parser.parse_args(argv)
     if args.command == "validate-dataset":
         examples = load_dataset(args.dataset)
@@ -227,5 +230,6 @@ def main(argv: list[str] | None = None) -> None:
             QwenCandidateGenerator(generation_config),
             split=args.split,
             limit=args.limit,
+            include_reserves=args.include_reserves,
         )
         print(json.dumps({"generated_candidates": generated_count}, ensure_ascii=False, indent=2))

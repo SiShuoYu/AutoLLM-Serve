@@ -50,6 +50,19 @@ def test_generation_is_resumable_and_skips_insufficient_evidence(tmp_path: Path)
             "task_type": "insufficient_evidence",
             "source_chunk": None,
         },
+        {
+            "task_id": "train-answerable-reserve-0001",
+            "split": "train",
+            "queue_role": "reserve",
+            "task_type": "answerable",
+            "source_chunk": {
+                "chunk_id": "chunk-reserve",
+                "document_id": "doc-reserve",
+                "text": "预留证据",
+                "source_path": "reserve.md",
+                "source_url": "https://example.test/reserve",
+            },
+        },
     ]
     queue.write_text(
         "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
@@ -58,9 +71,16 @@ def test_generation_is_resumable_and_skips_insufficient_evidence(tmp_path: Path)
     output = tmp_path / "candidates.jsonl"
     assert generate_answerable_candidates(queue, output, FakeGenerator(), limit=10) == 1
     assert generate_answerable_candidates(queue, output, FakeGenerator(), limit=10) == 0
+    assert (
+        generate_answerable_candidates(
+            queue, output, FakeGenerator(), limit=10, include_reserves=True
+        )
+        == 1
+    )
     candidates = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
     assert candidates[0]["reference_citation_ids"] == ["chunk-1"]
     assert candidates[0]["review"]["status"] == "needs_revision"
+    assert candidates[1]["reference_citation_ids"] == ["chunk-reserve"]
 
 
 def test_generation_records_unparsable_model_output_and_continues(tmp_path: Path) -> None:

@@ -142,6 +142,7 @@ def generate_answerable_candidates(
     *,
     split: str = "train",
     limit: int = 25,
+    include_reserves: bool = False,
 ) -> int:
     """Append valid drafts, record unparsable outputs, and skip completed tasks."""
     if split not in {"train", "validation", "test"}:
@@ -158,7 +159,10 @@ def generate_answerable_candidates(
         for row in queue
         if row.get("split") == split
         and row.get("task_type") == "answerable"
-        and row.get("queue_role", "primary") == "primary"
+        and (
+            row.get("queue_role", "primary") == "primary"
+            or (include_reserves and row.get("queue_role") == "reserve")
+        )
         and row.get("task_id") not in existing_ids
     ][:limit]
     if not selected:
