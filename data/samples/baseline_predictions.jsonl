@@ -1,0 +1,3 @@
+{"example_id":"sample-001","system_name":"sample-baseline","answer":"100 摄氏度","citation_ids":["e-water-boiling"],"latency_ms":42.0,"annotation":{"factuality":2,"unsupported_claims":0,"notes":"答案与证据一致"}}
+{"example_id":"sample-002","system_name":"sample-baseline","answer":"北京","citation_ids":["e-capital"],"latency_ms":35.0,"annotation":{"factuality":2,"unsupported_claims":0,"notes":"答案与证据一致"}}
+{"example_id":"sample-003","system_name":"sample-baseline","answer":"约30万米每秒","citation_ids":["e-light-speed"],"latency_ms":48.0,"annotation":{"factuality":0,"unsupported_claims":1,"notes":"数量级错误"}}

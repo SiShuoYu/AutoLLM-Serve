@@ -1,0 +1,264 @@
+"""Resumable, source-grounded QA draft generation for the GPU data stage."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Protocol
+
+import yaml
+
+from .authoring import validate_authoring_submissions
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateGenerationConfig:
+    model_id: str
+    model_revision: str
+    max_new_tokens: int
+    temperature: float
+    seed: int
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateGenerationPreflight:
+    model_id: str
+    model_revision: str
+    eligible_answerable_tasks: int
+    existing_submission_count: int
+    remaining_answerable_tasks: int
+    gpu_required: bool
+    gpu_dependencies_present: dict[str, bool]
+
+    def as_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+class CandidateGenerator(Protocol):
+    author_id: str
+
+    def generate(self, task: dict[str, Any]) -> tuple[str, str]: ...
+
+
+def _read_jsonl(path: Path, *, allow_missing: bool = False) -> list[dict[str, Any]]:
+    if allow_missing and not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            row: Any = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"invalid JSON on line {line_number} of {path}") from error
+        if not isinstance(row, dict):
+            raise ValueError(f"line {line_number} of {path} must contain an object")
+        rows.append(row)
+    return rows
+
+
+def load_candidate_generation_config(path: str | Path) -> CandidateGenerationConfig:
+    raw: Any = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or not isinstance(raw.get("generation"), dict):
+        raise ValueError("config must contain a generation mapping")
+    generation = raw["generation"]
+    model_id = generation.get("model_id")
+    revision = generation.get("model_revision")
+    max_new_tokens = generation.get("max_new_tokens")
+    temperature = generation.get("temperature")
+    seed = generation.get("seed")
+    if not isinstance(model_id, str) or not model_id.strip():
+        raise ValueError("generation.model_id must be a non-empty string")
+    if (
+        not isinstance(revision, str)
+        or len(revision) != 40
+        or any(character not in "0123456789abcdef" for character in revision)
+    ):
+        raise ValueError("generation.model_revision must be a full commit hash")
+    if (
+        not isinstance(max_new_tokens, int)
+        or isinstance(max_new_tokens, bool)
+        or max_new_tokens <= 0
+    ):
+        raise ValueError("generation.max_new_tokens must be a positive integer")
+    if (
+        not isinstance(temperature, (int, float))
+        or isinstance(temperature, bool)
+        or temperature < 0
+    ):
+        raise ValueError("generation.temperature must be non-negative")
+    if not isinstance(seed, int) or isinstance(seed, bool):
+        raise ValueError("generation.seed must be an integer")
+    return CandidateGenerationConfig(
+        model_id=model_id.strip(),
+        model_revision=revision,
+        max_new_tokens=max_new_tokens,
+        temperature=float(temperature),
+        seed=seed,
+    )
+
+
+def generation_preflight(
+    config: CandidateGenerationConfig,
+    queue_path: str | Path,
+    output_path: str | Path,
+    *,
+    split: str = "train",
+) -> CandidateGenerationPreflight:
+    if split not in {"train", "validation", "test"}:
+        raise ValueError("split must be train, validation, or test")
+    queue = _read_jsonl(Path(queue_path))
+    existing = _read_jsonl(Path(output_path), allow_missing=True)
+    existing_ids = {row.get("task_id") for row in existing}
+    eligible = [
+        row
+        for row in queue
+        if row.get("split") == split
+        and row.get("task_type") == "answerable"
+        and row.get("queue_role", "primary") == "primary"
+    ]
+    dependencies = {
+        package: importlib.util.find_spec(package) is not None
+        for package in ("torch", "transformers", "bitsandbytes")
+    }
+    return CandidateGenerationPreflight(
+        model_id=config.model_id,
+        model_revision=config.model_revision,
+        eligible_answerable_tasks=len(eligible),
+        existing_submission_count=len(existing),
+        remaining_answerable_tasks=sum(row.get("task_id") not in existing_ids for row in eligible),
+        gpu_required=True,
+        gpu_dependencies_present=dependencies,
+    )
+
+
+def generate_answerable_candidates(
+    queue_path: str | Path,
+    output_path: str | Path,
+    generator: CandidateGenerator,
+    *,
+    split: str = "train",
+    limit: int = 25,
+) -> int:
+    """Append validated drafts and skip completed tasks for safe resume."""
+    if split not in {"train", "validation", "test"}:
+        raise ValueError("split must be train, validation, or test")
+    if limit <= 0:
+        raise ValueError("limit must be positive")
+    queue_file = Path(queue_path)
+    output = Path(output_path)
+    queue = _read_jsonl(queue_file)
+    existing = _read_jsonl(output, allow_missing=True)
+    existing_ids = {row.get("task_id") for row in existing}
+    selected = [
+        row
+        for row in queue
+        if row.get("split") == split
+        and row.get("task_type") == "answerable"
+        and row.get("queue_role", "primary") == "primary"
+        and row.get("task_id") not in existing_ids
+    ][:limit]
+    if not selected:
+        return 0
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("a", encoding="utf-8") as handle:
+        for task in selected:
+            source = task.get("source_chunk")
+            if not isinstance(source, dict) or not isinstance(source.get("chunk_id"), str):
+                raise ValueError(f"task {task.get('task_id')} has no assigned source")
+            question, answer = generator.generate(task)
+            if not question.strip() or not answer.strip():
+                raise ValueError(f"generator returned empty content for {task.get('task_id')}")
+            row = {
+                "task_id": task["task_id"],
+                "question": question.strip(),
+                "reference_answer": answer.strip(),
+                "reference_citation_ids": [source["chunk_id"]],
+                "author_id": generator.author_id,
+                "review": {
+                    "status": "needs_revision",
+                    "notes": "GPU 模型生成草稿，等待独立审核。",
+                },
+            }
+            handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+            handle.flush()
+    validate_authoring_submissions(queue_file, output)
+    return len(selected)
+
+
+class QwenCandidateGenerator:
+    """4-bit Qwen generator. Construction is intentionally CUDA-only."""
+
+    def __init__(self, config: CandidateGenerationConfig) -> None:
+        try:
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+        except ImportError as error:
+            raise RuntimeError("install the project training dependencies first") from error
+        if not torch.cuda.is_available():
+            raise RuntimeError("candidate generation requires a CUDA GPU")
+        torch.manual_seed(config.seed)
+        quantization = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.float16,
+        )
+        self._torch = torch
+        self._config = config
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            config.model_id, revision=config.model_revision
+        )
+        self._model = AutoModelForCausalLM.from_pretrained(
+            config.model_id,
+            revision=config.model_revision,
+            quantization_config=quantization,
+            device_map={"": 0},
+        )
+        self.author_id = f"model:{config.model_id}@{config.model_revision}"
+
+    def generate(self, task: dict[str, Any]) -> tuple[str, str]:
+        source = task["source_chunk"]
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是中文 Kubernetes 数据标注员。只根据给定证据写一个自然、明确的问题"
+                    "及简洁答案。不要使用外部知识。仅输出 JSON 对象，键为 question 和 answer。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"证据 ID：{source['chunk_id']}\n证据：\n{source['text']}",
+            },
+        ]
+        inputs = self._tokenizer.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+        ).to(self._model.device)
+        generation_args: dict[str, Any] = {
+            "max_new_tokens": self._config.max_new_tokens,
+            "do_sample": self._config.temperature > 0,
+        }
+        if self._config.temperature > 0:
+            generation_args["temperature"] = self._config.temperature
+        with self._torch.no_grad():
+            generated = self._model.generate(**inputs, **generation_args)
+        text = self._tokenizer.decode(
+            generated[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=True
+        )
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < 0 or end <= start:
+            raise ValueError("model output did not contain a JSON object")
+        raw: Any = json.loads(text[start : end + 1])
+        if not isinstance(raw, dict) or not isinstance(raw.get("question"), str):
+            raise ValueError("model output has no question")
+        if not isinstance(raw.get("answer"), str):
+            raise ValueError("model output has no answer")
+        return raw["question"], raw["answer"]

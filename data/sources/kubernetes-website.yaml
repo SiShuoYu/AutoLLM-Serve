@@ -1,0 +1,9 @@
+source:
+  name: Kubernetes website Chinese documentation
+  repository: https://github.com/kubernetes/website.git
+  pinned_revision: 56464fe6c846523da555b49fbb012f0e270871ae
+  content_subdirectory: content/zh-cn/docs
+  license: CC-BY-4.0
+  attribution: Kubernetes Authors
+  retrieval_command: >-
+    citetune fetch-kubernetes-docs --destination data/raw/kubernetes-website --ref 56464fe6c846523da555b49fbb012f0e270871ae

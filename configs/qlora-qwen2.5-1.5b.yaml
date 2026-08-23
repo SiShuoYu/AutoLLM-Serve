@@ -1,0 +1,28 @@
+experiment:
+  name: qwen2.5-1.5b-qlora-citetune-cn
+  model:
+    id: Qwen/Qwen2.5-1.5B-Instruct
+    revision: 989aa7980e4cf806f80c7fef2b1adb7bc71aa306
+  data:
+    train_path: ../data/processed/sft_train.jsonl
+    manifest_path: ../data/processed/sft_train_manifest.json
+  output_dir: ../artifacts/qlora-qwen2.5-1.5b
+  seed: 42
+  training:
+    epochs: 3
+    learning_rate: 0.0002
+    batch_size: 1
+    gradient_accumulation_steps: 16
+    max_length: 1024
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj

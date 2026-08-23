@@ -1,0 +1,6 @@
+experiment:
+  name: sample-baseline-evaluation
+  seed: 42
+  dataset_path: ../data/samples/grounded_qa.jsonl
+  predictions_path: ../data/samples/baseline_predictions.jsonl
+  output_dir: ../artifacts/sample-baseline
