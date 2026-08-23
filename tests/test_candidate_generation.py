@@ -7,6 +7,7 @@ import pytest
 from citetune.candidate_generation import (
     CandidateGenerationConfig,
     generate_answerable_candidates,
+    generate_reserve_replacements,
     generation_preflight,
     load_candidate_generation_config,
     parse_candidate_output,
@@ -25,6 +26,23 @@ class InvalidGenerator:
 
     def generate(self, task: dict[str, Any]) -> tuple[str, str]:
         raise ValueError("missing answer")
+
+
+def _task(task_id: str, queue_role: str) -> dict[str, object]:
+    suffix = task_id.rsplit("-", 1)[-1]
+    return {
+        "task_id": task_id,
+        "split": "train",
+        "queue_role": queue_role,
+        "task_type": "answerable",
+        "source_chunk": {
+            "chunk_id": f"chunk-{suffix}",
+            "document_id": "doc",
+            "text": "这是可支持答案的完整证据。",
+            "source_path": "source.md",
+            "source_url": "https://example.test/source",
+        },
+    }
 
 
 def test_generation_is_resumable_and_skips_insufficient_evidence(tmp_path: Path) -> None:
@@ -158,3 +176,48 @@ def test_candidate_output_parser_accepts_json_and_labelled_fallback() -> None:
     )
     with pytest.raises(ValueError, match="no parseable"):
         parse_candidate_output("我无法生成问题")
+
+
+def test_reserve_replacement_retries_after_malformed_output(tmp_path: Path) -> None:
+    queue = tmp_path / "queue.jsonl"
+    queue.write_text(
+        "\n".join(
+            json.dumps(row)
+            for row in (
+                _task("train-answerable-0001", "primary"),
+                _task("train-answerable-reserve-0001", "reserve"),
+                _task("train-answerable-reserve-0002", "reserve"),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "candidates.jsonl"
+    output.write_text(
+        json.dumps(
+            {
+                "task_id": "train-answerable-0001",
+                "author_id": "existing",
+                "review": {"status": "rejected", "notes": "replace me"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class InvalidOnceThenValid:
+        author_id = "model:retry"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate(self, task: dict[str, Any]) -> tuple[str, str]:
+            self.calls += 1
+            if self.calls == 1:
+                raise ValueError("bad output")
+            return "问题足够长吗？", "这是由证据支持的完整答案。"
+
+    result = generate_reserve_replacements(queue, output, InvalidOnceThenValid(), requested_count=1)
+    assert result.generated_count == 1
+    assert result.generation_pass_count == 2
+    assert result.unfilled_count == 0

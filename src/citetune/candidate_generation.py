@@ -37,6 +37,13 @@ class CandidateGenerationPreflight:
         return asdict(self)
 
 
+@dataclass(frozen=True, slots=True)
+class CandidateReplacementResult:
+    generated_count: int
+    generation_pass_count: int
+    unfilled_count: int
+
+
 class CandidateGenerator(Protocol):
     author_id: str
 
@@ -204,6 +211,51 @@ def generate_answerable_candidates(
             handle.flush()
     validate_authoring_submissions(queue_file, output)
     return generated_count
+
+
+def generate_reserve_replacements(
+    queue_path: str | Path,
+    output_path: str | Path,
+    generator: CandidateGenerator,
+    *,
+    requested_count: int,
+    max_passes: int = 3,
+) -> CandidateReplacementResult:
+    """Retry reserve generation after malformed model output, with a hard bound.
+
+    A malformed output is recorded as rejected by ``generate_answerable_candidates``.
+    Retrying then deterministically moves to the next unused reserve task. The
+    bound keeps a pathological model from consuming an unlimited reserve pool.
+    """
+    if requested_count < 0:
+        raise ValueError("requested_count must not be negative")
+    if max_passes <= 0:
+        raise ValueError("max_passes must be positive")
+    if requested_count == 0:
+        return CandidateReplacementResult(0, 0, 0)
+    output = Path(output_path)
+    generated = 0
+    passes = 0
+    while generated < requested_count and passes < max_passes:
+        size_before = output.stat().st_size if output.exists() else 0
+        produced = generate_answerable_candidates(
+            queue_path,
+            output,
+            generator,
+            split="train",
+            limit=requested_count - generated,
+            include_reserves=True,
+        )
+        passes += 1
+        generated += produced
+        size_after = output.stat().st_size if output.exists() else 0
+        if size_after == size_before:
+            break
+    return CandidateReplacementResult(
+        generated_count=generated,
+        generation_pass_count=passes,
+        unfilled_count=requested_count - generated,
+    )
 
 
 class QwenCandidateGenerator:

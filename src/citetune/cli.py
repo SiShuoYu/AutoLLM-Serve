@@ -18,6 +18,7 @@ from .candidate_curation import curate_train_candidate_drafts
 from .candidate_generation import (
     QwenCandidateGenerator,
     generate_answerable_candidates,
+    generate_reserve_replacements,
     generation_preflight,
     load_candidate_generation_config,
 )
@@ -172,6 +173,14 @@ def main(argv: list[str] | None = None) -> None:
     curate_candidates.add_argument("--submissions", required=True)
     curate_candidates.add_argument("--output", required=True)
     curate_candidates.add_argument("--manifest", required=True)
+    top_up_candidates = commands.add_parser(
+        "top-up-reserve-candidates",
+        help="fill a known train candidate shortfall from reserves with bounded retries",
+    )
+    top_up_candidates.add_argument("--config", required=True)
+    top_up_candidates.add_argument("--queue", required=True)
+    top_up_candidates.add_argument("--output", required=True)
+    top_up_candidates.add_argument("--requested-count", required=True, type=int)
     args = parser.parse_args(argv)
     if args.command == "validate-dataset":
         examples = load_dataset(args.dataset)
@@ -289,18 +298,18 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "curate-and-replace-train-drafts":
         curation_plan = curate_train_candidate_drafts(args.queue, args.submissions, args.output)
         generation_config = load_candidate_generation_config(args.config)
-        replacement_count = generate_answerable_candidates(
+        replacement_result = generate_reserve_replacements(
             args.queue,
             args.output,
             QwenCandidateGenerator(generation_config),
-            split="train",
-            limit=curation_plan.replacement_requested_count,
-            include_reserves=True,
+            requested_count=curation_plan.replacement_requested_count,
         )
         output_path = Path(args.output)
         curation_report = {
             **curation_plan.as_dict(),
-            "generated_replacement_count": replacement_count,
+            "generated_replacement_count": replacement_result.generated_count,
+            "generation_pass_count": replacement_result.generation_pass_count,
+            "unfilled_replacement_count": replacement_result.unfilled_count,
             "final_output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
         }
         manifest_path = Path(args.manifest)
@@ -310,3 +319,23 @@ def main(argv: list[str] | None = None) -> None:
             encoding="utf-8",
         )
         print(json.dumps(curation_report, ensure_ascii=False, indent=2, sort_keys=True))
+    if args.command == "top-up-reserve-candidates":
+        generation_config = load_candidate_generation_config(args.config)
+        top_up_result = generate_reserve_replacements(
+            args.queue,
+            args.output,
+            QwenCandidateGenerator(generation_config),
+            requested_count=args.requested_count,
+        )
+        print(
+            json.dumps(
+                {
+                    "generated_replacement_count": top_up_result.generated_count,
+                    "generation_pass_count": top_up_result.generation_pass_count,
+                    "unfilled_replacement_count": top_up_result.unfilled_count,
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+        )
