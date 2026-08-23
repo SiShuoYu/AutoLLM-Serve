@@ -143,7 +143,7 @@ def generate_answerable_candidates(
     split: str = "train",
     limit: int = 25,
 ) -> int:
-    """Append validated drafts and skip completed tasks for safe resume."""
+    """Append valid drafts, record unparsable outputs, and skip completed tasks."""
     if split not in {"train", "validation", "test"}:
         raise ValueError("split must be train, validation, or test")
     if limit <= 0:
@@ -164,29 +164,42 @@ def generate_answerable_candidates(
     if not selected:
         return 0
     output.parent.mkdir(parents=True, exist_ok=True)
+    generated_count = 0
     with output.open("a", encoding="utf-8") as handle:
         for task in selected:
             source = task.get("source_chunk")
             if not isinstance(source, dict) or not isinstance(source.get("chunk_id"), str):
                 raise ValueError(f"task {task.get('task_id')} has no assigned source")
-            question, answer = generator.generate(task)
-            if not question.strip() or not answer.strip():
-                raise ValueError(f"generator returned empty content for {task.get('task_id')}")
-            row = {
-                "task_id": task["task_id"],
-                "question": question.strip(),
-                "reference_answer": answer.strip(),
-                "reference_citation_ids": [source["chunk_id"]],
-                "author_id": generator.author_id,
-                "review": {
-                    "status": "needs_revision",
-                    "notes": "GPU 模型生成草稿，等待独立审核。",
-                },
-            }
+            try:
+                question, answer = generator.generate(task)
+                if not question.strip() or not answer.strip():
+                    raise ValueError("generator returned empty content")
+            except ValueError:
+                row = {
+                    "task_id": task["task_id"],
+                    "author_id": generator.author_id,
+                    "review": {
+                        "status": "rejected",
+                        "notes": "GPU 模型未返回完整问答，已跳过并保留任务记录。",
+                    },
+                }
+            else:
+                row = {
+                    "task_id": task["task_id"],
+                    "question": question.strip(),
+                    "reference_answer": answer.strip(),
+                    "reference_citation_ids": [source["chunk_id"]],
+                    "author_id": generator.author_id,
+                    "review": {
+                        "status": "needs_revision",
+                        "notes": "GPU 模型生成草稿，等待独立审核。",
+                    },
+                }
+                generated_count += 1
             handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
             handle.flush()
     validate_authoring_submissions(queue_file, output)
-    return len(selected)
+    return generated_count
 
 
 class QwenCandidateGenerator:

@@ -20,6 +20,13 @@ class FakeGenerator:
         return f"{task['task_id']} 的问题？", "仅来自证据的答案。"
 
 
+class InvalidGenerator:
+    author_id = "invalid-generator"
+
+    def generate(self, task: dict[str, Any]) -> tuple[str, str]:
+        raise ValueError("missing answer")
+
+
 def test_generation_is_resumable_and_skips_insufficient_evidence(tmp_path: Path) -> None:
     queue = tmp_path / "queue.jsonl"
     rows = [
@@ -54,6 +61,35 @@ def test_generation_is_resumable_and_skips_insufficient_evidence(tmp_path: Path)
     candidates = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
     assert candidates[0]["reference_citation_ids"] == ["chunk-1"]
     assert candidates[0]["review"]["status"] == "needs_revision"
+
+
+def test_generation_records_unparsable_model_output_and_continues(tmp_path: Path) -> None:
+    queue = tmp_path / "queue.jsonl"
+    queue.write_text(
+        json.dumps(
+            {
+                "task_id": "train-answerable-0001",
+                "split": "train",
+                "queue_role": "primary",
+                "task_type": "answerable",
+                "source_chunk": {
+                    "chunk_id": "chunk-1",
+                    "document_id": "doc-1",
+                    "text": "证据一",
+                    "source_path": "one.md",
+                    "source_url": "https://example.test/one",
+                },
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "candidates.jsonl"
+    assert generate_answerable_candidates(queue, output, InvalidGenerator(), limit=1) == 0
+    rejected = json.loads(output.read_text(encoding="utf-8"))
+    assert rejected["review"]["status"] == "rejected"
+    assert "question" not in rejected
 
     config = CandidateGenerationConfig(
         model_id="Qwen/Qwen2.5-1.5B-Instruct",
