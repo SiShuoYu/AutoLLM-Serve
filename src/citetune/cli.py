@@ -18,6 +18,7 @@ from .candidate_curation import curate_train_candidate_drafts
 from .candidate_generation import (
     QwenCandidateGenerator,
     generate_answerable_candidates,
+    generate_heldout_candidates,
     generate_reserve_replacements,
     generation_preflight,
     load_candidate_generation_config,
@@ -169,6 +170,15 @@ def main(argv: list[str] | None = None) -> None:
     generate.add_argument(
         "--include-reserves", action="store_true", help="allow reserve source tasks after primaries"
     )
+    generate_heldout = commands.add_parser(
+        "generate-heldout-candidates",
+        help="generate validation and test drafts in one CUDA model session",
+    )
+    generate_heldout.add_argument("--config", required=True)
+    generate_heldout.add_argument("--queue", required=True)
+    generate_heldout.add_argument("--output", required=True)
+    generate_heldout.add_argument("--validation-limit", type=int, default=100)
+    generate_heldout.add_argument("--test-limit", type=int, default=160)
     audit_candidates = commands.add_parser(
         "audit-candidate-drafts",
         help="screen unreviewed drafts and render a bounded human review batch",
@@ -324,6 +334,16 @@ def main(argv: list[str] | None = None) -> None:
             include_reserves=args.include_reserves,
         )
         print(json.dumps({"generated_candidates": generated_count}, ensure_ascii=False, indent=2))
+    if args.command == "generate-heldout-candidates":
+        generation_config = load_candidate_generation_config(args.config)
+        heldout_counts = generate_heldout_candidates(
+            args.queue,
+            args.output,
+            QwenCandidateGenerator(generation_config),
+            validation_limit=args.validation_limit,
+            test_limit=args.test_limit,
+        )
+        print(json.dumps({"generated_candidates": heldout_counts}, ensure_ascii=False, indent=2))
     if args.command == "audit-candidate-drafts":
         audit_report = audit_candidate_drafts(
             args.queue,

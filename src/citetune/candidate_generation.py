@@ -258,6 +258,28 @@ def generate_reserve_replacements(
     )
 
 
+def generate_heldout_candidates(
+    queue_path: str | Path,
+    output_path: str | Path,
+    generator: CandidateGenerator,
+    *,
+    validation_limit: int = 100,
+    test_limit: int = 160,
+) -> dict[str, int]:
+    """Generate validation and test drafts in one model-loading session.
+
+    These remain ``needs_revision`` drafts and never enter SFT export.
+    """
+    return {
+        "validation": generate_answerable_candidates(
+            queue_path, output_path, generator, split="validation", limit=validation_limit
+        ),
+        "test": generate_answerable_candidates(
+            queue_path, output_path, generator, split="test", limit=test_limit
+        ),
+    }
+
+
 class QwenCandidateGenerator:
     """4-bit Qwen generator. Construction is intentionally CUDA-only."""
 

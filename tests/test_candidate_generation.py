@@ -7,6 +7,7 @@ import pytest
 from citetune.candidate_generation import (
     CandidateGenerationConfig,
     generate_answerable_candidates,
+    generate_heldout_candidates,
     generate_reserve_replacements,
     generation_preflight,
     load_candidate_generation_config,
@@ -221,3 +222,33 @@ def test_reserve_replacement_retries_after_malformed_output(tmp_path: Path) -> N
     assert result.generated_count == 1
     assert result.generation_pass_count == 2
     assert result.unfilled_count == 0
+
+
+def test_heldout_generation_keeps_validation_and_test_separate(tmp_path: Path) -> None:
+    queue = tmp_path / "queue.jsonl"
+    queue.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    **_task(task_id, "primary"),
+                    "split": split,
+                }
+            )
+            for task_id, split in (
+                ("validation-answerable-0001", "validation"),
+                ("test-answerable-0001", "test"),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "heldout.jsonl"
+    counts = generate_heldout_candidates(
+        queue, output, FakeGenerator(), validation_limit=1, test_limit=1
+    )
+    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert counts == {"validation": 1, "test": 1}
+    assert {row["task_id"] for row in rows} == {
+        "validation-answerable-0001",
+        "test-answerable-0001",
+    }
