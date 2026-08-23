@@ -11,6 +11,7 @@ from .authoring import (
     render_review_packet,
     validate_authoring_submissions,
 )
+from .candidate_audit import audit_candidate_drafts
 from .candidate_generation import (
     QwenCandidateGenerator,
     generate_answerable_candidates,
@@ -149,6 +150,16 @@ def main(argv: list[str] | None = None) -> None:
     generate.add_argument(
         "--include-reserves", action="store_true", help="allow reserve source tasks after primaries"
     )
+    audit_candidates = commands.add_parser(
+        "audit-candidate-drafts",
+        help="screen unreviewed drafts and render a bounded human review batch",
+    )
+    audit_candidates.add_argument("--queue", required=True)
+    audit_candidates.add_argument("--submissions", required=True)
+    audit_candidates.add_argument("--report", required=True)
+    audit_candidates.add_argument("--review-packet", required=True)
+    audit_candidates.add_argument("--review-limit", type=int, default=60)
+    audit_candidates.add_argument("--seed", type=int, default=42)
     args = parser.parse_args(argv)
     if args.command == "validate-dataset":
         examples = load_dataset(args.dataset)
@@ -253,3 +264,13 @@ def main(argv: list[str] | None = None) -> None:
             include_reserves=args.include_reserves,
         )
         print(json.dumps({"generated_candidates": generated_count}, ensure_ascii=False, indent=2))
+    if args.command == "audit-candidate-drafts":
+        audit_report = audit_candidate_drafts(
+            args.queue,
+            args.submissions,
+            args.report,
+            args.review_packet,
+            review_limit=args.review_limit,
+            seed=args.seed,
+        )
+        print(json.dumps(audit_report.as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
