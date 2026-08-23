@@ -49,6 +49,36 @@ def test_authoring_queue_locks_sources_to_their_existing_splits(tmp_path: Path) 
     assert len([row for row in rows if row["queue_role"] == "reserve"]) == 3
 
 
+def test_authoring_queue_reduces_reserves_without_reusing_source_chunks(tmp_path: Path) -> None:
+    splits = tmp_path / "splits"
+    splits.mkdir()
+    for split, count in (("train", 3), ("validation", 2), ("test", 2)):
+        (splits / f"{split}.jsonl").write_text(
+            "\n".join(
+                json.dumps({"chunk_id": f"{split}-{number}", "text": "证据"})
+                for number in range(count)
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    output = tmp_path / "authoring.jsonl"
+    manifest = build_authoring_queue(
+        splits,
+        output,
+        tmp_path / "authoring-manifest.json",
+        train_count=2,
+        validation_count=1,
+        test_answerable_count=1,
+        train_reserve_count=4,
+        validation_reserve_count=4,
+        test_reserve_count=4,
+    )
+    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    answerable = [row for row in rows if row["task_type"] == "answerable"]
+    assert manifest.reserve_task_counts == {"train": 1, "validation": 1, "test": 1}
+    assert len({row["source_chunk"]["chunk_id"] for row in answerable}) == len(answerable)
+
+
 def test_reviewed_authoring_must_match_locked_evidence(tmp_path: Path) -> None:
     queue = tmp_path / "queue.jsonl"
     queue.write_text(

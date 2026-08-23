@@ -96,10 +96,16 @@ def build_authoring_queue(
     split_root = Path(split_directory)
     selected: dict[str, list[dict[str, Any]]] = {}
     checksums: dict[str, str] = {}
+    effective_reserves: dict[str, int] = {}
     for split, count in requested.items():
         path = split_root / f"{split}.jsonl"
         rows = _load_jsonl(path)
-        selected[split] = _stable_choice(rows, seed, count + reserve_requested[split])
+        if count > len(rows):
+            raise ValueError(
+                f"requested {count} authoring tasks from only {len(rows)} source chunks"
+            )
+        effective_reserves[split] = min(reserve_requested[split], len(rows) - count)
+        selected[split] = _stable_choice(rows, seed, count + effective_reserves[split])
         checksums[split] = hashlib.sha256(path.read_bytes()).hexdigest()
     output_rows: list[dict[str, object]] = []
     for split, rows in selected.items():
@@ -150,7 +156,7 @@ def build_authoring_queue(
         source_split_sha256=checksums,
         seed=seed,
         answerable_task_counts=requested,
-        reserve_task_counts=reserve_requested,
+        reserve_task_counts=effective_reserves,
         insufficient_evidence_task_counts=insufficient_requested,
     )
     manifest_file = Path(manifest_path)
