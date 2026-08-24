@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from citetune.inference import GeneratedAnswer, generate_predictions, load_inference_config
 
 
@@ -70,3 +72,25 @@ def test_inference_generates_predictions_and_real_style_manifest(tmp_path: Path)
     assert report.peak_gpu_memory_bytes == 123
     assert row["citation_ids"] == ["chunk-1"]
     assert row["answer"] == "Pod 是可部署单元。"
+
+
+@pytest.mark.parametrize(
+    "config_name, expected_mode, expects_adapter",
+    [
+        ("inference-base-qwen2.5-1.5b.yaml", "base", False),
+        ("inference-rag-qwen2.5-1.5b.yaml", "rag", False),
+        ("inference-qlora-qwen2.5-1.5b-synthetic-v1.yaml", "qlora", True),
+        ("inference-rag-qlora-qwen2.5-1.5b-synthetic-v1.yaml", "rag_qlora", True),
+    ],
+)
+def test_checked_in_inference_configs_define_the_comparison_matrix(
+    config_name: str, expected_mode: str, expects_adapter: bool
+) -> None:
+    repository_root = Path(__file__).resolve().parents[1]
+    config = load_inference_config(repository_root / "configs" / config_name)
+
+    assert config.mode == expected_mode
+    assert (config.adapter_path is not None) is expects_adapter
+    assert config.temperature == 0.0
+    assert config.seed == 42
+    assert config.max_new_tokens == 256

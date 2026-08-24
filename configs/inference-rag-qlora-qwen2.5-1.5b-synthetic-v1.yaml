@@ -1,0 +1,12 @@
+inference:
+  system_name: rag-bm25-qlora-synthetic-v1-qwen2.5-1.5b
+  mode: rag_qlora
+  model:
+    id: Qwen/Qwen2.5-1.5B-Instruct
+    revision: 989aa7980e4cf806f80c7fef2b1adb7bc71aa306
+  adapter_path: ../artifacts/qlora-qwen2.5-1.5b-synthetic-v1/adapter
+  corpus_path: ../data/processed/kubernetes_zh_clean_v2_chunks.jsonl
+  top_k: 5
+  max_new_tokens: 256
+  temperature: 0.0
+  seed: 42

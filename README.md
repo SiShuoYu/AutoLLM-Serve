@@ -83,6 +83,26 @@ pytest --cov=citetune --cov-report=term-missing --cov-fail-under=80
 4. **V4 — algorithm optimization**: improve data selection, retrieval, or training strategy against a locked test set; quantify quality, latency, and cost trade-offs.
 5. **V5 — portfolio release**: Docker, CI, model/data cards, reproducible report, and a concise technical write-up.
 
+## Locked inference comparison
+
+The four files below define the eventual comparison matrix. They use the same
+pinned Qwen revision, greedy decoding, seed, and response limit. The only
+experimental factors are retrieval and loading the `synthetic-v1` QLoRA
+adapter:
+
+| System | Configuration |
+| --- | --- |
+| Base | `configs/inference-base-qwen2.5-1.5b.yaml` |
+| RAG | `configs/inference-rag-qwen2.5-1.5b.yaml` |
+| QLoRA | `configs/inference-qlora-qwen2.5-1.5b-synthetic-v1.yaml` |
+| RAG + QLoRA | `configs/inference-rag-qlora-qwen2.5-1.5b-synthetic-v1.yaml` |
+
+`citetune generate-predictions` records actual per-example GPU latency and
+peak allocated GPU memory, but it intentionally does not score quality. It
+must run only against a locked, human-reviewed held-out dataset. The current
+synthetic adaptation runs are reproducibility artifacts, not evidence that a
+system is better.
+
 The finished project is considered portfolio-ready only when every published
 claim links to raw result artifacts, hardware/model/configuration metadata, and
 at least three repeated GPU runs. It will never substitute mock numbers for
