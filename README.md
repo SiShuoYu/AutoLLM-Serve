@@ -103,6 +103,12 @@ must run only against a locked, human-reviewed held-out dataset. The current
 synthetic adaptation runs are reproducibility artifacts, not evidence that a
 system is better.
 
+Before gold review is complete, `citetune export-provisional-heldout-dataset`
+can create a separately marked validation/test export from screened drafts.
+It exists only to exercise the four inference systems and record real latency
+and memory. Its manifest is labelled `latency_only_not_quality_benchmark`; it
+must not be passed to quality scoring or cited as a final result.
+
 The finished project is considered portfolio-ready only when every published
 claim links to raw result artifacts, hardware/model/configuration metadata, and
 at least three repeated GPU runs. It will never substitute mock numbers for

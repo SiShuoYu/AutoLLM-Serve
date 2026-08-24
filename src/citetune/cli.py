@@ -28,6 +28,7 @@ from .dataset import dataset_manifest, load_dataset
 from .experiment import load_experiment_config, run_experiment
 from .inference import QwenAnswerGenerator, generate_predictions, load_inference_config
 from .model_review import QwenEvidenceReviewer, load_model_review_config, review_train_candidates
+from .provisional import export_provisional_heldout_dataset
 from .quality import filter_corpus_for_authoring
 from .readiness import assess_data_readiness
 from .retrieval import BM25Retriever
@@ -229,6 +230,14 @@ def main(argv: list[str] | None = None) -> None:
     model_review.add_argument("--submissions", required=True)
     model_review.add_argument("--output", required=True)
     model_review.add_argument("--manifest", required=True)
+    provisional_heldout = commands.add_parser(
+        "export-provisional-heldout-dataset",
+        help="export unreviewed validation/test drafts for latency-only inference checks",
+    )
+    provisional_heldout.add_argument("--queue", required=True)
+    provisional_heldout.add_argument("--submissions", required=True)
+    provisional_heldout.add_argument("--output", required=True)
+    provisional_heldout.add_argument("--manifest", required=True)
     generate_predictions_command = commands.add_parser(
         "generate-predictions",
         help="generate Base/RAG/QLoRA predictions with real timing, without scoring",
@@ -460,6 +469,13 @@ def main(argv: list[str] | None = None) -> None:
             encoding="utf-8",
         )
         print(json.dumps(review_report.as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+    if args.command == "export-provisional-heldout-dataset":
+        provisional_manifest = export_provisional_heldout_dataset(
+            args.queue, args.submissions, args.output, args.manifest
+        )
+        print(
+            json.dumps(provisional_manifest.as_dict(), ensure_ascii=False, indent=2, sort_keys=True)
+        )
     if args.command == "generate-predictions":
         inference_config = load_inference_config(args.config)
         inference_report = generate_predictions(
