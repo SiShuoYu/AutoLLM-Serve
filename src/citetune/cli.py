@@ -238,6 +238,11 @@ def main(argv: list[str] | None = None) -> None:
     provisional_heldout.add_argument("--submissions", required=True)
     provisional_heldout.add_argument("--output", required=True)
     provisional_heldout.add_argument("--manifest", required=True)
+    provisional_heldout.add_argument(
+        "--limit-per-split",
+        type=int,
+        help="export a fixed-size validation/test operational inference preflight",
+    )
     generate_predictions_command = commands.add_parser(
         "generate-predictions",
         help="generate Base/RAG/QLoRA predictions with real timing, without scoring",
@@ -471,7 +476,11 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps(review_report.as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
     if args.command == "export-provisional-heldout-dataset":
         provisional_manifest = export_provisional_heldout_dataset(
-            args.queue, args.submissions, args.output, args.manifest
+            args.queue,
+            args.submissions,
+            args.output,
+            args.manifest,
+            limit_per_split=args.limit_per_split,
         )
         print(
             json.dumps(provisional_manifest.as_dict(), ensure_ascii=False, indent=2, sort_keys=True)

@@ -24,6 +24,7 @@ class ProvisionalHeldoutManifest:
     format_version: str
     exported_split_counts: dict[str, int]
     excluded_submission_status_counts: dict[str, int]
+    limit_per_split: int | None
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -38,6 +39,8 @@ def export_provisional_heldout_dataset(
     submissions_path: str | Path,
     output_path: str | Path,
     manifest_path: str | Path,
+    *,
+    limit_per_split: int | None = None,
 ) -> ProvisionalHeldoutManifest:
     """Export unreviewed validation/test drafts only for operational inference checks.
 
@@ -45,6 +48,8 @@ def export_provisional_heldout_dataset(
     latency and memory can be measured. Its explicit role marker prevents it
     from being mistaken for a quality benchmark or an SFT source.
     """
+    if limit_per_split is not None and limit_per_split <= 0:
+        raise ValueError("limit_per_split must be positive when provided")
     queue_file = Path(queue_path)
     submissions_file = Path(submissions_path)
     validate_authoring_submissions(queue_file, submissions_file)
@@ -57,6 +62,13 @@ def export_provisional_heldout_dataset(
         and queue[row["task_id"]].get("split") in {"validation", "test"}
         and queue[row["task_id"]].get("task_type") == "answerable"
     ]
+    selected = sorted(selected, key=lambda row: row["task_id"])
+    if limit_per_split is not None:
+        limited: list[dict[str, Any]] = []
+        for split in ("validation", "test"):
+            split_rows = [row for row in selected if queue[row["task_id"]]["split"] == split]
+            limited.extend(split_rows[:limit_per_split])
+        selected = limited
     split_counts = Counter(str(queue[row["task_id"]]["split"]) for row in selected)
     if not split_counts.get("validation") or not split_counts.get("test"):
         raise ValueError("provisional export requires needs_revision rows in validation and test")
@@ -103,6 +115,7 @@ def export_provisional_heldout_dataset(
         format_version="citetune-provisional-heldout-v1",
         exported_split_counts=dict(sorted(split_counts.items())),
         excluded_submission_status_counts=dict(sorted(excluded.items())),
+        limit_per_split=limit_per_split,
     )
     manifest_file = Path(manifest_path)
     manifest_file.parent.mkdir(parents=True, exist_ok=True)
